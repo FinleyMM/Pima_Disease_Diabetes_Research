@@ -1,0 +1,120 @@
+# 1. Load libraries
+library(tidyverse)    # Data manipulation and visualization
+library(factoextra)   # PCA and clustering visualization
+library(ggfortify)    # autoplot for PCA biplots
+library(cluster)      # Clustering algorithms (agnes)
+library(dendextend)   # Enhanced dendrograms
+library(psych)        # Factor analysis
+library(readr)        # CSV import
+library(corrplot)     # Correlation matrix plotting
+
+# 2. Set seed and load data
+set.seed(972)  # For reproducibility
+pima_data <- read_csv('Pima_Indians_Diabetes_Dataset1.csv')
+
+# 3. Stratified sampling and data arrangement
+pima_data <- pima_data %>%
+  group_by(Target) %>%
+  slice_sample(n = 200) %>%
+  ungroup()
+
+write_csv(pima_data, 'Pima_group_sample_972.csv')
+
+pima_data <- pima_data %>%
+  group_by(Target) %>%
+  arrange(Age) %>%
+  ungroup()
+
+# 4. Data summary and covariance matrix
+summary(pima_data)
+cov_matrix <- cov(pima_data %>% select(-Target))
+print(cov_matrix)
+
+# 5. Correlation matrix visualization
+cor_matrix <- cor(pima_data %>% select(-Target))
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust",
+         tl.cex = 0.8, tl.col = "black", addCoef.col = "black")
+
+# 6. Principal Component Analysis (PCA)
+pca_data <- pima_data %>% select(-Target)
+pca_results <- prcomp(pca_data, scale. = TRUE)
+
+summary(pca_results)
+loadings <- pca_results$rotation
+print(loadings)
+
+var_explained <- 100 * (pca_results$sdev)^2 / sum((pca_results$sdev)^2)
+cumsum(var_explained)
+
+ggplot(NULL, aes(x = 1:8, y = var_explained)) +
+  geom_col(fill = 'steelblue') +
+  ggtitle('Scree Plot (8 Input Variables)') +
+  xlab('Principal Component (PC)') +
+  ylab('Percentage Variance Explained')
+
+loadings_df <- as.data.frame(pca_results$rotation[, 1:8])
+loadings_df$Variable <- rownames(loadings_df)
+loadings_long <- gather(loadings_df, key = 'Component', value = 'Loading', -Variable)
+
+ggplot(loadings_long, aes(x = Variable, y = Loading, fill = Loading > 0)) +
+  geom_bar(stat = 'identity', show.legend = FALSE) +
+  facet_grid(Component ~ .) +
+  ggtitle('Loadings Plots of PC1–PC8') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+autoplot(pca_results,
+         label = TRUE, label.size = 3, shape = FALSE,
+         loadings = TRUE, loadings.label = TRUE,
+         data = pima_data, colour = 'Target') +
+  ggtitle('PCA Biplot: PC1 vs PC2')
+
+autoplot(pca_results, x = 2, y = 3,
+         label = TRUE, label.size = 3, shape = FALSE,
+         loadings = TRUE, loadings.label = TRUE,
+         data = pima_data, colour = 'Target') +
+  ggtitle('PCA Biplot: PC2 vs PC3')
+
+# 7. Factor Analysis (FA)
+fa_data <- pima_data %>% select(-Target)
+fa_data_scaled <- scale(fa_data)
+
+fa.parallel(fa_data_scaled, fa = "fa", fm = "ml", n.iter = 100)
+
+fa_result <- fa(fa_data_scaled, nfactors = 3, rotate = "none", fm = "ml")
+print(fa_result)
+
+communalities <- fa_result$communality
+uniquenesses <- fa_result$uniquenesses
+print(communalities)
+print(uniquenesses)
+
+fa_rotated <- fa(fa_data_scaled, nfactors = 3, rotate = "varimax", fm = "ml")
+print(fa_rotated)
+
+fa.diagram(fa_rotated)
+
+# 8. Cluster Analysis — Scale data and compute distance matrix
+scaled_data <- scale(pima_data %>% select(-Target))
+dist_matrix <- dist(scaled_data, method = "manhattan")
+
+# 9. Hierarchical clustering using Ward's method
+cluster_res <- agnes(dist_matrix, method = "ward")
+
+ac <- cluster_res$ac
+print(paste("Agglomerative coefficient:", round(ac, 3)))  # Strong clustering expected
+
+plot(cluster_res, which.plots = 2, main = 'Cluster by Person (Manhattan + Ward)')
+clusters <- cutree(cluster_res, k = 3)
+rect.hclust(as.hclust(cluster_res), k = 3, border = 5:6)
+
+fviz_dend(cluster_res, border = 5:6, cex = 1.5, k = 3,
+          main = 'Manhattan + Ward Dendrogram by Person')
+
+# 10. Cluster analysis on variables
+variable_dist <- dist(t(pima_data %>% select(-Target)), method = "manhattan")
+var_cluster_res <- agnes(variable_dist, method = "ward")
+
+plot(var_cluster_res, which.plots = 2,
+     main = 'Cluster by Variable (Manhattan + Ward)')
+variable_clusters <- cutree(var_cluster_res, k = 3)
+rect.hclust(as.hclust(var_cluster_res), k = 3, border = 2:10)
